@@ -12,6 +12,8 @@ This database contains 114303 popular articles of english wikipedia as of septem
 
 ## Converting ZIM files yourself
 
+Conversion is pretty fast, the above database is converted from ZIM to my SQLite based format in about 1 to 3 minutes depending on the number of cores on my laptop.
+
 ### How to get ZIM file
 
 You can download a dump of WikiPedias most popular articles from their servers, or use a mirror [like this one](http://ftp.acc.umu.se/mirror/wikimedia.org/other/kiwix/zim/wikipedia/). I recommend using a dump starting with `wikipedia_en_top_nopic`.
