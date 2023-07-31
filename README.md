@@ -4,6 +4,10 @@ This small python project allows you to convert ZIM files, as found in the Kiwix
 that is read by the WikiReader plugin of KOReader I am building.
 
 Default is a single threaded conversion, but you can specify `--num-cores 4` to use more cores and thus speed up conversion.
+## WikiReader
+
+I created this plugin for KoReader during sometime off: https://github.com/koreader/koreader/pull/9534
+It has not been merged yet and probably never will be, but I am using it myself and is fairly stable and works for me.
 
 ## Just give me a database
 
