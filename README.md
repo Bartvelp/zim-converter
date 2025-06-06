@@ -11,8 +11,10 @@ It has not been merged yet and probably never will be, but I am using it myself 
 
 ## Just give me a database
 
-If you have no experience programming or simply want a database file that is preconverted, that [can be found here](https://mega.nz/file/06AX2DrC#1WYLi9GsF2DV7VplMaMoK7bKGWna2ItIeiW92OekALg).
-This database contains 114303 popular articles of english wikipedia as of september 2022.
+If you have no experience programming or simply want a database file that is preconverted, that [can be found here](https://mega.nz/file/omQ0ADTJ#-hBBxWDl77qCQwTRy6VHmZrC_P19a5n4ghUXcPUbD6s).
+This database contains the top 60k popular articles of english wikipedia as of may 2025, with the top 10k articles containing images too. Note that the max file size is 4GB for the FAT32 filesystems of common ereaders, so this is about as much info as you can pack in a single DB. If you have an external sd card with NTFS or EXT4 you could convert the full wikipedia with images (~100 GiB). In theory it should work, but I have not tested it myself.
+
+[Old database](https://mega.nz/file/06AX2DrC#1WYLi9GsF2DV7VplMaMoK7bKGWna2ItIeiW92OekALg). This database contains 114303 popular articles of english wikipedia as of september 2022.
 
 ## Converting ZIM files yourself
 
