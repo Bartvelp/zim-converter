@@ -4,22 +4,13 @@ import zstd
 import argparse
 from libzim import Archive
 from multiprocessing import Pool
+import re
+import base64
+import time
 
-
-def merge_databases(db1: str, db2: str):
-    """Merges all entries from db2 into db1
-    """
-    con3 = sqlite3.connect(db1)
-    print("merging:", db2)
-    con3.execute("ATTACH '" + db2 + "' as dba")
-
-    con3.execute("BEGIN")
-    for row in con3.execute("SELECT * FROM dba.sqlite_master WHERE type='table'"):
-        combine = "INSERT OR IGNORE INTO " + row[1] + " SELECT * FROM dba." + row[1]
-        con3.execute(combine)
-    con3.commit()
-    con3.execute("detach database dba")
-
+img_src_pattern = r'<img\s+[^>]*src=["\']([^"\']+)["\']'
+css_link_pattern = r'<link\s+[^>]*href=["\']([^"\']+)["\'][^>]*rel=["\']stylesheet["\'][^>]*>'
+MAX_IMAGE_SIZE = 300 * 1024  # 300 KB in bytes
 
 def setup_db(con):
     """Setup a SQLite database in the format expected by WikiReader
@@ -27,7 +18,7 @@ def setup_db(con):
     cursor = con.cursor()
 
     cursor.executescript("""
-    PRAGMA journal_mode=DELETE;
+    PRAGMA journal_mode=WAL;
 
     CREATE TABLE IF NOT EXISTS articles (
         id INTEGER PRIMARY KEY,
@@ -48,84 +39,138 @@ def setup_db(con):
     """)
     con.commit()
 
+def get_mime_type(path):
+    ext = path.split('.')[-1].lower()
+    if ext == 'jpg' or ext == 'jpeg':
+        return 'jpeg'
+    elif ext == 'png':
+        return 'png'
+    elif ext == 'svg':
+        return 'svg'
+    elif ext == 'gif':
+        return 'gif'
+    else:
+        return 'jpeg'
 
-def process_range(args):
+def get_image_link(link: str, zim: Archive):
+    link = link.replace('../', '')
+    try:
+        entry = zim.get_entry_by_path(link)
+        item = entry.get_item()
+        
+        if len(item.content) > MAX_IMAGE_SIZE:
+            print(f"Skipped image {link} ({len(item.content)} bytes > max {MAX_IMAGE_SIZE})")
+            return None, 0
+
+        base64_bytes = base64.b64encode(item.content)
+        base64_string = base64_bytes.decode('utf-8')
+        mime_type = get_mime_type(item.path)
+        size = len(base64_bytes)
+        return f"data:image/{mime_type};base64,{base64_string}", size
+    except KeyError:
+        return None, 0
+
+def get_css_content(link: str, zim: Archive):
+    link = link.replace('../', '')
+    try:
+        entry = zim.get_entry_by_path(link)
+        item = entry.get_item()
+        content = item.content.tobytes().decode('utf-8')
+        return content, len(content.encode('utf-8'))
+    except Exception as e:
+        # print(f"Failed to load CSS {link}: {e}")
+        return None, 0
+
+def replace_img_and_css_html(html: str, zim: Archive):
+    # Handle image sources
+    img_sources = re.findall(img_src_pattern, html)
+    for src in img_sources:
+        image_link, size = get_image_link(src, zim)
+        if image_link:
+            html = html.replace(src, image_link)
+        else:
+            pass
+            # print('Failed for image', src)
+
+    # Handle CSS links
+    css_links = [] # re.findall(css_link_pattern, html)
+    # print(css_links)
+    css_links = [l for l in css_links if 'inserted_style' not in l]
+    for href in css_links:
+        css_content, size = get_css_content(href, zim)
+        if css_content:
+            style_tag = f"<style>/* EXTRACTED FROM {href} */{css_content}</style>"
+            html = re.sub(
+                rf'<link\s+[^>]*href=["\']{re.escape(href)}["\'][^>]*>',
+                style_tag,
+                html
+            )
+        else:
+            # print('Failed for CSS', href)
+            pass
+    return html
+
+
+def convert_zim(zim_path, db_path, article_list=None):
     """Process a range of a ZIM file into a seperate SQLite database"""
-    start_id, end_id, zim_path, db_path = args
 
     con = sqlite3.connect(db_path)
     cursor = con.cursor()
     setup_db(con)
 
     zim = Archive(zim_path)
-    for id in range(start_id, end_id):
-        zim_entry = zim._get_entry_by_id(id)
+    def all_entry_gen():
+        for id in range(0, zim.entry_count):
+            zim_entry = zim._get_entry_by_id(id)
+            yield zim_entry
 
+    def selected_entry_gen():
+        for article_title in article_list:
+            try:
+                yield zim.get_entry_by_path('/A/' + article_title)
+            except Exception as e:
+                print('Failed to get', article_title, e)
+
+    entry_gen = selected_entry_gen if article_list else all_entry_gen
+    num_total = len(article_list) if article_list else zim.entry_count
+    num_done = 0
+    t0 = time.time()
+    for zim_entry in entry_gen():
         # Detect special files
         if zim_entry.path.startswith('-'):
-            if zim_entry.title.endswith(".css") and False:  # Disabled for now
-                css_content = bytes(zim_entry.get_item().content)
-                css = css_content
-                cursor.execute("UPDATE css SET content_zstd = ?", [zstd.compress(css)])
-
             # Don't continue parsing them as articles
             continue
-
+        
         # deal with normal files
         if zim_entry.is_redirect:
             destination_entry = zim_entry.get_redirect_entry()
             cursor.execute("INSERT OR REPLACE INTO title_2_id VALUES(?, ?)", [
                 destination_entry._index, zim_entry.title.lower()
             ])
-        else:  # It is a proper article
+        elif zim_entry.path.startswith('A/'):  # It is a proper article
             # First make it findable
             cursor.execute("INSERT OR REPLACE INTO title_2_id VALUES(?, ?)", [
                 zim_entry._index, zim_entry.title.lower()
             ])
 
-            page_content = bytes(zim_entry.get_item().content)
-            zstd_page_content = zstd.compress(page_content)
-            cursor.execute("INSERT OR REPLACE INTO articles VALUES(?, ?, ?)", [
+            page_content = bytes(zim_entry.get_item().content).decode()
+            # Try to find image links in the article, and replace them with their values if found
+            new_page_content = replace_img_and_css_html(page_content, zim)
+
+            zstd_page_content = zstd.compress(new_page_content.encode(), 9, 4)
+            cursor.execute("INSERT OR IGNORE INTO articles VALUES(?, ?, ?)", [
                 zim_entry._index, zim_entry.title.replace("_", " "), zstd_page_content
             ])
+        num_done += 1
         # Commit to db on disk every once in a while
-        if id % 10000 == 0:
-            print(f'Commiting batch to db, at i {id} of {end_id}')
+        if num_done % 100 == 0:
+            print(f'{(time.time() - t0):.1f}s Commiting batch to db, at i {num_done} of {num_total}')
             con.commit()
 
     con.commit()
     con.close()
-    print('Done with batch, at id:', start_id, end_id)
     return args
 
-
-def convert_multithreaded(args, num_cores=None):
-    # Create jobs for the job pool
-    zim = Archive(args.zim_file)
-    batch_size = 5000
-    end = zim.entry_count
-
-    tasks = [(start_i,
-             min(start_i + batch_size + 1, end),
-             args.zim_file, args.output_db+f'_{start_i}'
-              ) for start_i in range(0, end, batch_size)
-             ]
-
-    print("Created tasks")
-
-    # Process jobs with pool
-    with Pool(num_cores) as pool:
-        results = pool.imap(process_range, tasks)
-        for task in results:
-            _, _, _, db_path = task
-            merge_databases(args.output_db, db_path)
-            os.remove(db_path)  # Delete temp db file after done merging
-
-
-def convert_singlethreaded(args):
-    zim = Archive(args.zim_file)
-    task = (0, zim.entry_count, args.zim_file, args.output_db)
-    process_range(task)
 
 
 if __name__ == "__main__":
@@ -139,9 +184,8 @@ if __name__ == "__main__":
         default="./zim_articles.db"
     )
     parser.add_argument(
-        '--num-cores', help='Number of cores used for conversion, default is single threaded',
-        default=1,
-        type=int
+        '--article-list', help='Path of newline list of articles to extract from ZIM if you dont want to convert all entries',
+        default=None, required=False
     )
     args = parser.parse_args()
 
@@ -152,10 +196,12 @@ if __name__ == "__main__":
     setup_db(con)
 
     # Now perform the jobs single or multithreaded
-    print(f'Starting conversion with {args.num_cores} cores')
-    if args.num_cores == 1:
-        convert_singlethreaded(args)
+    print(f'Starting conversion')
+
+    if args.article_list:
+        articles = open(args.article_list).read().splitlines()
     else:
-        convert_multithreaded(args, args.num_cores)
+        articles = None
+    convert_zim(args.zim_file, args.output_db, articles)
 
     print('Done')
