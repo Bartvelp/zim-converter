@@ -22,7 +22,7 @@ def setup_db(con):
 
     CREATE TABLE IF NOT EXISTS articles (
         id INTEGER PRIMARY KEY,
-        title TEXT NOT NULL,
+        title TEXT NOT NULL UNIQUE,
         page_content_zstd BLOB NOT NULL
     );
 
@@ -149,21 +149,31 @@ def convert_zim(zim_path, db_path, article_list=None):
             ])
         elif zim_entry.path.startswith('A/'):  # It is a proper article
             # First make it findable
-            cursor.execute("INSERT OR REPLACE INTO title_2_id VALUES(?, ?)", [
-                zim_entry._index, zim_entry.title.lower()
-            ])
+            try:
+                cursor.execute("INSERT INTO title_2_id VALUES(?, ?)", [
+                    zim_entry._index, zim_entry.title.lower()
+                ])
+            except sqlite3.IntegrityError as e:
+                if not 'UNIQUE constraint' in str(e):
+                    raise e
+                cursor.execute("SELECT id FROM title_2_id WHERE title_lower_case = ?", [ zim_entry.title.lower() ])
+                cur_id = cursor.fetchone()[0]
+                if cur_id != zim_entry._index:
+                    cursor.execute("UPDATE title_2_id SET id = ? WHERE id = ?", [
+                        zim_entry._index, cur_id
+                    ])
 
             page_content = bytes(zim_entry.get_item().content).decode()
             # Try to find image links in the article, and replace them with their values if found
             new_page_content = replace_img_and_css_html(page_content, zim)
 
             zstd_page_content = zstd.compress(new_page_content.encode(), 9, 4)
-            cursor.execute("INSERT OR IGNORE INTO articles VALUES(?, ?, ?)", [
+            cursor.execute("INSERT OR REPLACE INTO articles VALUES(?, ?, ?)", [
                 zim_entry._index, zim_entry.title.replace("_", " "), zstd_page_content
             ])
         num_done += 1
         # Commit to db on disk every once in a while
-        if num_done % 100 == 0:
+        if num_done % 500 == 0:
             print(f'{(time.time() - t0):.1f}s Commiting batch to db, at i {num_done} of {num_total}')
             con.commit()
 
