@@ -144,6 +144,10 @@ def setup_db(con):
         content_zstd BLOB NOT NULL
     );
 
+    -- Add indexes for better WikiReader compatibility
+    CREATE INDEX IF NOT EXISTS idx_title_lower ON title_2_id(title_lower_case);
+    CREATE INDEX IF NOT EXISTS idx_articles_title ON articles(title);
+
     """)
     con.commit()
 
@@ -406,7 +410,18 @@ def process_article_entry(zim_entry, cursor, zim, stats):
                 logger.debug(f"Updated duplicate title mapping for {zim_entry.title}")
 
     try:
+        # Validate entry has meaningful content
+        if not zim_entry.title or len(zim_entry.title.strip()) < 2:
+            logger.debug(f"Skipping entry with invalid title: '{zim_entry.title}'")
+            return
+            
         page_content = bytes(zim_entry.get_item().content).decode()
+        
+        # Validate content is not empty/too short
+        if len(page_content.strip()) < 100:
+            logger.debug(f"Skipping entry with minimal content: {zim_entry.title} ({len(page_content)} chars)")
+            return
+            
         logger.debug(f"Extracted content for {zim_entry.title}: {len(page_content)} characters")
         
         # Process images/CSS only if requested (WARNING: can make DB much larger)
