@@ -377,6 +377,41 @@ def convert_zim(zim_path, db_path, article_list=None):
     logger.info(f"Processing completed in {elapsed:.1f}s")
     logger.info(f"Final statistics: {stats}")
     
+    # Add a default "Ebook" entry for WikiReader plugin compatibility
+    try:
+        cursor.execute("SELECT COUNT(*) FROM articles WHERE title = 'Ebook'")
+        if cursor.fetchone()[0] == 0:
+            default_content = """
+            <html>
+            <head><title>Welcome to WikiReader</title></head>
+            <body>
+            <h1>Welcome to WikiReader</h1>
+            <p>This database contains articles converted from a ZIM file.</p>
+            <p>Use the search function to find articles.</p>
+            <p>Database statistics:</p>
+            <ul>
+            <li>Total articles: {articles_processed}</li>
+            <li>Total entries processed: {total_entries}</li>
+            <li>Binary files skipped: {binary_files_skipped}</li>
+            </ul>
+            </body>
+            </html>
+            """.format(**stats)
+            
+            compressed_content = zstd.compress(default_content.encode(), 9, 4)
+            
+            # Use a high ID that won't conflict
+            default_id = 999999
+            cursor.execute("INSERT OR REPLACE INTO articles VALUES(?, ?, ?)", [
+                default_id, "Ebook", compressed_content
+            ])
+            cursor.execute("INSERT OR REPLACE INTO title_2_id VALUES(?, ?)", [
+                default_id, "ebook"
+            ])
+            logger.info("Added default 'Ebook' page for WikiReader compatibility")
+    except Exception as e:
+        logger.warning(f"Failed to add default Ebook page: {e}")
+
     con.commit()
     con.close()
     return stats
