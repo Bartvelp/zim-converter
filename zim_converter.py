@@ -17,11 +17,16 @@ logger = logging.getLogger(__name__)
 img_src_pattern = r'<img\s+[^>]*src=["\']([^"\']+)["\']'
 css_link_pattern = r'<link\s+[^>]*href=["\']([^"\']+)["\'][^>]*rel=["\']stylesheet["\'][^>]*>'
 MAX_IMAGE_SIZE = 300 * 1024  # 300 KB in bytes
-MAX_COMPRESSED_IMAGE_SIZE = 50 * 1024  # 50 KB for compressed images
+MAX_COMPRESSED_IMAGE_SIZE = 15 * 1024  # 15 KB for e-ink optimized images
 
 def compress_image_with_imagemagick(image_data, mime_type):
     """
-    Compress image using ImageMagick: convert to grayscale, reduce quality, resize if needed
+    EXTREME e-ink optimization using ImageMagick:
+    - Convert to 16-level grayscale with Floyd-Steinberg dithering
+    - Resize to max 600x400 for smaller files
+    - Enhance contrast for better e-ink visibility  
+    - Very aggressive compression (quality 35)
+    - Target: <15KB per image for optimal e-reader performance
     Returns compressed image data and new size, or None if compression fails
     """
     try:
@@ -33,18 +38,22 @@ def compress_image_with_imagemagick(image_data, mime_type):
         with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as output_file:
             output_path = output_file.name
         
-        # ImageMagick command for e-reader optimization:
-        # - Convert to grayscale (-colorspace Gray)
-        # - Resize if too large (-resize '800x600>')
-        # - Heavy compression (-quality 60)
-        # - Convert to JPEG for better compression
+        # ImageMagick command for EXTREME e-ink optimization:
+        # - Convert to pure black/white with dithering for better e-ink rendering
+        # - Aggressive resizing for small file sizes
+        # - Minimal quality for maximum compression
         cmd = [
             'convert',
             input_path,
-            '-colorspace', 'Gray',          # Convert to grayscale
-            '-resize', '800x600>',          # Resize if larger than 800x600
-            '-quality', '60',               # Heavy compression
-            '-strip',                       # Remove metadata
+            '-colorspace', 'Gray',          # Convert to grayscale first
+            '-resize', '600x400>',          # Smaller max size for e-ink
+            '-contrast-stretch', '0.15x0.05%',  # Enhance contrast for e-ink
+            '-dither', 'FloydSteinberg',    # Add dithering for better e-ink display
+            '-colors', '16',                # Reduce to 16 gray levels (e-ink friendly)
+            '-quality', '35',               # Very aggressive compression
+            '-strip',                       # Remove all metadata
+            '-interlace', 'none',           # Remove progressive encoding
+            '-sampling-factor', '4:2:0',    # Aggressive chroma subsampling
             output_path
         ]
         
@@ -81,6 +90,35 @@ def compress_image_with_imagemagick(image_data, mime_type):
     except Exception as e:
         logger.error(f"Image compression failed: {e}")
         return None, None
+
+def is_binary_content(path):
+    """
+    Check if a path points to binary/media content that shouldn't be processed as text
+    """
+    path_lower = path.lower()
+    
+    # Image file extensions
+    image_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.svg', '.webp', '.bmp', '.ico', '.tiff']
+    # Media file extensions  
+    media_extensions = ['.mp4', '.webm', '.ogg', '.mp3', '.wav', '.pdf']
+    # Font and style extensions
+    font_extensions = ['.woff', '.woff2', '.ttf', '.otf', '.eot']
+    # Other binary extensions
+    other_extensions = ['.zip', '.gz', '.tar', '.exe', '.bin']
+    
+    # Check file extension
+    for ext in image_extensions + media_extensions + font_extensions + other_extensions:
+        if path_lower.endswith(ext):
+            return True
+    
+    # Check for known image hosting patterns
+    if any(pattern in path_lower for pattern in [
+        'images/', 'img/', 'static/', 'assets/', 'media/',
+        '.amazonaws.com/', 'upload', 'thumbnail', 'logo'
+    ]):
+        return True
+        
+    return False
 
 def setup_db(con):
     """Setup a SQLite database in the format expected by WikiReader
@@ -221,6 +259,7 @@ def convert_zim(zim_path, db_path, article_list=None):
         'special_files_skipped': 0,
         'redirects_processed': 0,
         'articles_processed': 0,
+        'binary_files_skipped': 0,
         'other_entries_skipped': 0,
         'processing_errors': 0
     }
@@ -300,6 +339,13 @@ def convert_zim(zim_path, db_path, article_list=None):
         elif not zim_entry.path.startswith('A/') and len(zim_entry.path) > 2 and '/' in zim_entry.path:
             # This might be a non-Wikipedia article (like iFixit)
             namespace = zim_entry.path.split('/')[0]
+            
+            # Skip known binary/media files
+            if is_binary_content(zim_entry.path):
+                logger.debug(f"Skipping binary/media file: {zim_entry.path}")
+                stats['binary_files_skipped'] += 1
+                continue
+                
             if num_done < 50:  # Log first 50 non-A/ entries to understand structure
                 logger.info(f"Non-Wikipedia entry found: namespace='{namespace}', path='{zim_entry.path}', title='{zim_entry.title}'")
             
@@ -308,7 +354,7 @@ def convert_zim(zim_path, db_path, article_list=None):
                 process_article_entry(zim_entry, cursor, zim, stats)
                 logger.debug(f"Successfully processed non-Wikipedia article: {zim_entry.title}")
             except Exception as e:
-                logger.error(f"Failed to process non-Wikipedia article {zim_entry.title}: {e}")
+                logger.debug(f"Failed to process non-Wikipedia article {zim_entry.title}: {e}")
                 stats['processing_errors'] += 1
         else:
             stats['other_entries_skipped'] += 1
@@ -405,7 +451,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         '--compress-images', action='store_true',
-        help='Heavily compress images to grayscale for e-readers (requires ImageMagick). Implies --include-images.'
+        help='EXTREME e-ink optimization: 16-level grayscale, dithered, <15KB per image (requires ImageMagick). Implies --include-images.'
     )
     parser.add_argument(
         '--debug', action='store_true',
@@ -472,8 +518,8 @@ if __name__ == "__main__":
     process_article_entry._compress_images = args.compress_images
     
     if args.compress_images:
-        logger.warning("Image compression enabled - converting to grayscale and heavily compressed!")
-        logger.info(f"Max image size after compression: {MAX_COMPRESSED_IMAGE_SIZE} bytes")
+        logger.warning("EXTREME e-ink image compression enabled!")
+        logger.info(f"Images: 16-level grayscale, dithered, max 600x400, <{MAX_COMPRESSED_IMAGE_SIZE} bytes each")
     elif args.include_images:
         logger.warning("Image processing enabled - database size will be significantly larger!")
         logger.info(f"Max image size: {MAX_IMAGE_SIZE} bytes")

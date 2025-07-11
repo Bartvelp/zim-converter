@@ -47,8 +47,8 @@ python3 zim_converter.py --zim-file ./wikipedia.zim --output-db ./zim_articles.d
 # Include images (larger database):
 python3 zim_converter.py --zim-file ./ifixit.zim --output-db ./ifixit.db --include-images
 
-# Compress images for e-readers (requires ImageMagick):
-# Converts images to grayscale, resizes, and heavily compresses
+# EXTREME e-ink compression (requires ImageMagick):
+# 16-level grayscale, dithered, max 600x400, <15KB per image
 python3 zim_converter.py --zim-file ./ifixit.zim --output-db ./ifixit.db --compress-images
 
 # Enable debug logging for troubleshooting:
@@ -57,7 +57,7 @@ python3 zim_converter.py --zim-file ./ifixit.zim --output-db ./ifixit.db --debug
 
 **Options:**
 - `--include-images`: Include original images (significantly increases size)
-- `--compress-images`: Convert to grayscale, resize to 800x600, compress to <50KB (requires ImageMagick)
+- `--compress-images`: EXTREME e-ink optimization - 16-level grayscale, dithered, max 600x400, <15KB per image (requires ImageMagick)
 - `--debug`: Enable detailed debug logging to file and console (for troubleshooting)
 
 **Install ImageMagick for image compression:**
