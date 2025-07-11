@@ -233,7 +233,7 @@ def convert_zim(zim_path, db_path, article_list=None):
                 try:
                     zim_entry = zim.get_entry_by_id(id)
                 except AttributeError:
-                    logger.warning(f"Public get_entry_by_id not available, using private _get_entry_by_id for entry {id}")
+                    logger.debug(f"Public get_entry_by_id not available, using private _get_entry_by_id for entry {id}")
                     zim_entry = zim._get_entry_by_id(id)
                 yield zim_entry
             except Exception as e:
@@ -278,7 +278,7 @@ def convert_zim(zim_path, db_path, article_list=None):
                 try:
                     dest_index = destination_entry.index
                 except AttributeError:
-                    logger.warning("Using private _index attribute for redirect destination")
+                    logger.debug("Using private _index attribute for redirect destination")
                     dest_index = destination_entry._index
                 
                 cursor.execute("INSERT OR REPLACE INTO title_2_id VALUES(?, ?)", [
@@ -339,7 +339,7 @@ def process_article_entry(zim_entry, cursor, zim, stats):
         try:
             entry_index = zim_entry.index
         except AttributeError:
-            logger.warning(f"Using private _index attribute for entry {zim_entry.title}")
+            logger.debug(f"Using private _index attribute for entry {zim_entry.title}")
             entry_index = zim_entry._index
             
         cursor.execute("INSERT INTO title_2_id VALUES(?, ?)", [
