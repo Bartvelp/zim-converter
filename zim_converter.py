@@ -11,15 +11,7 @@ import logging
 import subprocess
 import tempfile
 
-# Setup comprehensive logging
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('zim_converter_debug.log'),
-        logging.StreamHandler()
-    ]
-)
+# Setup logging (will be configured later based on --debug flag)
 logger = logging.getLogger(__name__)
 
 img_src_pattern = r'<img\s+[^>]*src=["\']([^"\']+)["\']'
@@ -415,9 +407,31 @@ if __name__ == "__main__":
         '--compress-images', action='store_true',
         help='Heavily compress images to grayscale for e-readers (requires ImageMagick). Implies --include-images.'
     )
+    parser.add_argument(
+        '--debug', action='store_true',
+        help='Enable debug logging to file and console'
+    )
     args = parser.parse_args()
+    
+    # Configure logging based on debug flag
+    if args.debug:
+        logging.basicConfig(
+            level=logging.DEBUG,
+            format='%(asctime)s - %(levelname)s - %(message)s',
+            handlers=[
+                logging.FileHandler('zim_converter_debug.log'),
+                logging.StreamHandler()
+            ]
+        )
+        logger.info("Debug logging enabled - detailed output will be saved to zim_converter_debug.log")
+    else:
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(levelname)s: %(message)s',
+            handlers=[logging.StreamHandler()]
+        )
 
-    logger.info(f"Starting ZIM conversion with args: {args}")
+    logger.info(f"Starting ZIM conversion")
     logger.info(f"ZIM file: {args.zim_file}")
     logger.info(f"Output DB: {args.output_db}")
     
