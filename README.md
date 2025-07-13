@@ -1,9 +1,8 @@
 # ZIM-converter
 
-This small python project allows you to convert ZIM files, as found in the Kiwix WikiPedia library, to a SQLite database
-that is read by the WikiReader plugin of KOReader I am building.
+This Python project converts ZIM files (Kiwix format) to optimized SQLite databases for the WikiReader plugin in KOReader. 
 
-Default is a single threaded conversion, but you can specify `--num-cores 4` to use more cores and thus speed up conversion.
+**Now supports both Wikipedia AND non-Wikipedia content** (iFixit, Wiktionary, etc.) with enhanced error handling and image processing options.
 ## WikiReader
 
 I created this plugin for KoReader during sometime off: https://github.com/koreader/koreader/pull/9534
@@ -18,7 +17,13 @@ This database contains the top 60k popular articles of english wikipedia as of m
 
 ## Converting ZIM files yourself
 
-Conversion is pretty fast, the above database is converted from ZIM to my SQLite based format in about 1 to 3 minutes depending on the number of cores on my laptop.
+**Supported Content Types:**
+- ✅ **Wikipedia** (all languages and variants)
+- ✅ **iFixit** (repair guides with images)  
+- ✅ **Wiktionary** (dictionaries)
+- ✅ **Any ZIM file** (universal namespace support)
+
+Conversion is optimized and includes comprehensive error handling and debug logging.
 
 ### How to get ZIM file
 
@@ -33,13 +38,40 @@ wget -O wikipedia.zim http://ftp.acc.umu.se/mirror/wikimedia.org/other/kiwix/zim
 ### Running the CLI
 
 ```bash
-# First install the 2 dependencies with pip:
+# First install the dependencies with pip:
 pip install -r requirements.txt
-# Then run the command line interface like this:
-python3 --zim-file ./wikipedia.zim --output-db ./zim_articles.db
+
+# Basic conversion (text-only, smallest database):
+python3 zim_converter.py --zim-file ./wikipedia.zim --output-db ./zim_articles.db
+
+# Include images (larger database):
+python3 zim_converter.py --zim-file ./ifixit.zim --output-db ./ifixit.db --include-images
+
+# EXTREME e-ink compression (requires ImageMagick):
+# 16-level grayscale, dithered, max 600x400, <15KB per image
+python3 zim_converter.py --zim-file ./ifixit.zim --output-db ./ifixit.db --compress-images
+
+# Enable debug logging for troubleshooting:
+python3 zim_converter.py --zim-file ./ifixit.zim --output-db ./ifixit.db --debug
 ```
 
-Then simply transfer this `.db` file to a storage medium KOReader can access, and set it as the database in the plugin menu.
+**Options:**
+- `--include-images`: Include original images (significantly increases size)
+- `--compress-images`: EXTREME e-ink optimization - 16-level grayscale, dithered, max 600x400, <15KB per image (requires ImageMagick)
+- `--debug`: Enable detailed debug logging to file and console (for troubleshooting)
+
+**Install ImageMagick for image compression:**
+```bash
+# Ubuntu/Debian:
+sudo apt install imagemagick
+
+# macOS:
+brew install imagemagick
+
+# Windows: Download from https://imagemagick.org/
+```
+
+Then transfer the `.db` file to your e-reader and set it as the database in the WikiReader plugin.
 
 ### Docker
 
